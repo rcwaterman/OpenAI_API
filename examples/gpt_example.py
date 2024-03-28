@@ -1,12 +1,10 @@
-from src.openai_api import GPT
-from dotenv import load_dotenv
-from openai import OpenAI
-import os
+import sys
+sys.path.append('..')
+import src.openai_api
 
-load_dotenv()
+messages = [{"role": "system", "content": "You are a professor at MIT that teaches about machine learning, artificial intelligence, and large language models."},
+            {"role": "user", "content": "What is the process of fine tuning a large language model like ChatGPT on user data?"}]
 
-message = [{"role": "user", "content": "Say this is a test"}]
+client = src.openai_api.GPT()
 
-client = GPT(OpenAI(api_key=os.getenv("API_Key")))
-
-client.chat(message)
+client.chat(messages)
