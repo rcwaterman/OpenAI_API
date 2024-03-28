@@ -11,7 +11,7 @@ class GPT(OpenAI):
     Class to make api calls to the GPT api.
     """
     def __init__(self):
-        self.client = super().__init__()
+        super().__init__()
 
     def chat(self, messages):
         stream = client.chat.completions.create(
