@@ -25,9 +25,17 @@ class GPT(OpenAI):
             stream=True,
         )
 
+        response = ""
+
         for chunk in stream:
-            print(chunk.choices[0].delta.content or "", end="")
-        print("\n")
+            if chunk.choices[0].delta.content is not None:
+                response = response + chunk.choices[0].delta.content
+            else:
+                response = response + "\n"
+            
+            print(response)
+        
+        return response
 
 class Dalle(OpenAI):
     """
