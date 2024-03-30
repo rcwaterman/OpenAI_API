@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#Personal text docs
+Ideas.txt
+
 # C extensions
 *.so
 
