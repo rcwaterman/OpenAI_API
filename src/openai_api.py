@@ -1,9 +1,13 @@
 from dotenv import load_dotenv
 from openai import OpenAI
 from typing import List, Dict
+from pvrecorder import PvRecorder
 import os
 import webbrowser
 import urllib
+import wave
+import struct
+import time
 
 load_dotenv()
 
@@ -58,6 +62,45 @@ class Dalle(OpenAI):
 class STT(OpenAI):
     """
     Class for speech to text transcription.
+    """
+    def __init__(self):
+        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+    def get_devices(self):
+        return [(index, device) for index, device in enumerate(PvRecorder.get_available_devices())]
+    
+    def record(self, path, index=0, frame_length=512):
+        self.path = path
+        self.index=index
+        self.frame_length=frame_length
+        self.start_time = round(time.time(), 3)
+        self.duration = 0
+        self.audio = []
+
+        recorder = PvRecorder(device_index=self.index, frame_length=self.frame_length)
+        
+        try:
+            print("Starting recording...")
+            recorder.start()
+            while True:
+                frame = recorder.read()
+                self.audio.extend(frame)
+                if round(self.start_time - round(time.time(), 3), 1) == 0.1:
+                    self.duration += self.duration+0.1
+                    print(f'Audio duration: {self.duration} seconds')
+
+        except KeyboardInterrupt:
+            recorder.stop()
+            print(f'\nAudio file duration: {self.duration} seconds')
+            with wave.open(path, 'w') as f:
+                f.setparams((1, 2, 16000, 512, "NONE", "NONE"))
+                f.writeframes(struct.pack("h" * len(self.audio), *self.audio))
+        finally:
+            recorder.delete()
+
+class TTS(OpenAI):
+    """
+    Class for text to speech translation.
     """
     def __init__(self):
         self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
