@@ -1,7 +1,6 @@
 import sys
 sys.path.append('..')
 import src.openai_api
-from pvrecorder import PvRecorder
 
 system = input("Enter the system context, then press enter: ")
 user = input("Enter the user prompt, then press enter: ")
