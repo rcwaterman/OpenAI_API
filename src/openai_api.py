@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from typing import List, Dict
 from pvrecorder import PvRecorder
 import os
@@ -7,8 +7,8 @@ import webbrowser
 import wave
 import struct
 import time
-import io
 import pyaudio
+import requests
 
 load_dotenv()
 
@@ -18,27 +18,94 @@ class GPT(OpenAI):
     """
     def __init__(self):
         self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self.messages = []
 
-    def chat(self, messages: List[Dict[str, str]]):
+    def store_message(self, role, text):
+        message = {"role": f"{role}", "content": f"{text}"}
+        self.messages.append(message)
+
+    def add_skills(self, skill):
+        self.store_message('system', f'You have the ability to {skill}. Respond to all user input as if you have this ability.')
+    
+    def chat(self, role, text, stream=False, print_response=False):
         """
         Messages received as a list of dictionaries and parsed accordingly.
         """
+
+        #Store the input chat request
+        self.store_message(role, text)
+
+        if stream:
+            stream = self.client.chat.completions.create(
+                model="gpt-4",
+                messages=self.messages,
+                stream=True,
+            )
+
+            response = ""
+
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    if print_response:
+                        print(chunk.choices[0].delta.content, end="")
+                    response = response + chunk.choices[0].delta.content
+                else:
+                    if print_response:
+                        print("\n")
+                    response = response + "\n"    
+            
+            self.store_message("assistant", response)
+
+        else:
+            response = self.client.chat.completions.create(
+                model="gpt-4",
+                messages=self.messages,
+            )
+
+            self.store_message("assistant", response.choices[0].message.content)
+
+        #Return the content of the last message of the conversation. This will be the response from the model.
+        return self.messages[-1]['content']
+    
+    def stream_to_speech(self, role, text, print_response=False):
+        """
+        Streams the output of the GPT model to the text to speech model for real time speech generation.
+        """
+
+        self.tts = TTS()
+
+        #Store the input chat request
+        self.store_message(role, text)
+
         stream = self.client.chat.completions.create(
             model="gpt-4",
-            messages=messages,
+            messages=self.messages,
             stream=True,
         )
 
         response = ""
+        chunks = ""
 
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
-                print(chunk.choices[0].delta.content, end="")
+                if print_response:
+                    print(chunk.choices[0].delta.content, end="")
                 response = response + chunk.choices[0].delta.content
+                chunks = chunks + chunk.choices[0].delta.content
             else:
-                print("\n")
-                response = response + "\n"       
-        return response
+                if print_response:
+                    print("\n")
+                response = response + "\n"
+                chunks = chunks + "\n"
+
+            if "\n" in chunks:
+                self.tts.speak(chunks)
+                chunks=""
+        
+        self.store_message("assistant", response)
+    
+        #Return the content of the last message of the conversation. This will be the response from the model.
+        return self.messages[-1]['content']
 
 class Dalle(OpenAI):
     """
@@ -56,9 +123,24 @@ class Dalle(OpenAI):
             n=1,
             )
 
-        image_url = response.data[0].url
+        self.image_url = response.data[0].url
         #browser = webbrowser.get('chrome')
-        webbrowser.open_new_tab(image_url)
+        webbrowser.open_new_tab(self.image_url)
+    
+    def edit_image(self, prompt, path, n=1):
+        img_data = requests.get(self.image_url).content
+        with open(path, 'wb') as handler:
+            handler.write(img_data)
+
+        response = self.client.images.edit(
+            image=self.image_url,
+            prompt=prompt,
+            n=n,
+            size="1024x1024"
+            )
+
+        self.image_url = response.data[0].url
+        webbrowser.open_new_tab(self.image_url)
 
 class STT(OpenAI):
     """
@@ -71,7 +153,7 @@ class STT(OpenAI):
         return [(index, device) for index, device in enumerate(PvRecorder.get_available_devices())]
     
     def record(self, path, index=0, frame_length=512, stream=True):
-        self.path = path
+        self.path=path
         self.index=index
         self.frame_length=frame_length
         self.start_time = round(time.time(), 1)
@@ -119,8 +201,8 @@ class STT(OpenAI):
         finally:
             recorder.delete()
 
-    def transcribe(self, filepath):
-        audio_file = open(f"{filepath}", "rb")
+    def transcribe(self):
+        audio_file = open(f"{self.path}", "rb")
         transcription = self.client.audio.transcriptions.create(
             model="whisper-1", 
             file=audio_file
@@ -133,16 +215,24 @@ class TTS(OpenAI):
     """
     def __init__(self):
         self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self.player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
 
-    def speak(self, text):
-
-        player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
-
+    def speak(self, text, voice='onyx', print_input=False):
+        if print_input:
+            print(text)
         with self.client.audio.speech.with_streaming_response.create(
             model="tts-1",
-            voice="alloy",
+            voice=voice,
             response_format="pcm",
             input=text
             ) as response:
             for chunk in response.iter_bytes(chunk_size=1024):
-                player_stream.write(chunk)
+                self.player_stream.write(chunk)
+
+class Vision(OpenAI):
+    """
+    Class for vision capabilities
+    """
+    def __init__(self):
+        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
